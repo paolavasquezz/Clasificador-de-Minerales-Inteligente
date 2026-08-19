@@ -1,26 +1,48 @@
+import streamlit as st
 import pandas as pd
 import numpy as np
-import gradio as gr
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 
-# Cargar dataset
-df = pd.read_excel("minerales_core_100.xlsx")
+st.set_page_config(page_title="Clasificador de Minerales")
 
-features = ["Dureza", "Brillo", "Color", "Exfoliacion", "Reaccion_HCl", "Magnetismo", "Densidad", "Sistema"]
-X = df[features].copy()
-y = df["Nombre_ES"]
+st.title(" Clasificador Inteligente de Minerales")
+st.write("Introduce las propiedades físicas observadas en la muestra para identificar el mineral.")
 
-encoders = {}
-for col in ["Brillo", "Color", "Exfoliacion", "Reaccion_HCl", "Magnetismo", "Sistema"]:
-    le = LabelEncoder()
-    X[col] = le.fit_transform(X[col].astype(str))
-    encoders[col] = le
+@st.cache_resource
+def load_data_and_model():
+    df = pd.read_excel("minerales_core_100.xlsx")
+    features = ["Dureza", "Brillo", "Color", "Exfoliacion", "Reaccion_HCl", "Magnetismo", "Densidad", "Sistema"]
+    X = df[features].copy()
+    y = df["Nombre_ES"]
 
-clf = RandomForestClassifier(n_estimators=100, random_state=42)
-clf.fit(X, y)
+    encoders = {}
+    for col in ["Brillo", "Color", "Exfoliacion", "Reaccion_HCl", "Magnetismo", "Sistema"]:
+        le = LabelEncoder()
+        X[col] = le.fit_transform(X[col].astype(str))
+        encoders[col] = le
 
-def identificar_mineral(dureza, brillo, color, exfol, hcl, mag, densidad, sistema):
+    clf = RandomForestClassifier(n_estimators=100, random_state=42)
+    clf.fit(X, y)
+    return clf, encoders
+
+clf, encoders = load_data_and_model()
+
+col1, col2 = st.columns(2)
+
+with col1:
+    dureza = st.slider("Dureza (Mohs)", 1.0, 10.0, 5.0, step=0.1)
+    brillo = st.selectbox("Brillo", encoders["Brillo"].classes_)
+    color = st.selectbox("Color", encoders["Color"].classes_)
+    exfol = st.selectbox("Exfoliación", encoders["Exfoliacion"].classes_)
+
+with col2:
+    hcl = st.selectbox("Reacción a HCl", encoders["Reaccion_HCl"].classes_)
+    mag = st.selectbox("Magnetismo", encoders["Magnetismo"].classes_)
+    densidad = st.number_input("Densidad (g/cm³)", value=2.7, step=0.1)
+    sistema = st.selectbox("Sistema Cristalino", encoders["Sistema"].classes_)
+
+if st.button(" Identificar Mineral", use_container_width=True):
     entrada = {
         "Dureza": [dureza],
         "Brillo": [encoders["Brillo"].transform([brillo])[0]],
@@ -37,29 +59,9 @@ def identificar_mineral(dureza, brillo, color, exfol, hcl, mag, densidad, sistem
     clases = clf.classes_
     
     top3_idx = np.argsort(probs)[::-1][:3]
-    resultados = {}
+    
+    st.subheader("Resultados:")
     for idx in top3_idx:
         if probs[idx] > 0:
-            resultados[clases[idx]] = float(probs[idx])
-            
-    return resultados
-
-demo = gr.Interface(
-    fn=identificar_mineral,
-    inputs=[
-        gr.Slider(minimum=1.0, maximum=10.0, step=0.1, value=5.0, label="Dureza (Mohs)"),
-        gr.Dropdown(choices=list(encoders["Brillo"].classes_), value=encoders["Brillo"].classes_[0], label="Brillo"),
-        gr.Dropdown(choices=list(encoders["Color"].classes_), value=encoders["Color"].classes_[0], label="Color"),
-        gr.Dropdown(choices=list(encoders["Exfoliacion"].classes_), value=encoders["Exfoliacion"].classes_[0], label="Exfoliación"),
-        gr.Dropdown(choices=list(encoders["Reaccion_HCl"].classes_), value=encoders["Reaccion_HCl"].classes_[0], label="Reacción a HCl"),
-        gr.Dropdown(choices=list(encoders["Magnetismo"].classes_), value=encoders["Magnetismo"].classes_[0], label="Magnetismo"),
-        gr.Number(value=2.7, label="Densidad (g/cm³)"),
-        gr.Dropdown(choices=list(encoders["Sistema"].classes_), value=encoders["Sistema"].classes_[0], label="Sistema Cristalino")
-    ],
-    outputs=gr.Label(num_top_classes=3, label="Predicción del Mineral"),
-    title="💎 Clasificador Inteligente de Minerales",
-    description="Introduce las propiedades físicas observadas en la muestra para predecir de qué mineral se trata."
-)
-
-if __name__ == "__main__":
-    demo.launch()
+            st.write(f"**{clases[idx]}**: {probs[idx]*100:.1f}% de coincidencia")
+            st.progress(float(probs[idx]))
